@@ -23,6 +23,40 @@ All notable changes to this project are documented here. The format is based on
   before installing this version, pressing Quick Run once will overwrite that
   program — check the Tuya app's schedule for that slot before first use.
 
+## [0.21.2] - 2026-08-13
+
+### Fixed
+- Manual local setup's protocol `auto` mode now tries every supported candidate
+  (3.4, 3.5, 3.3, and 3.1) before treating TinyTuya Err 914 as rejected
+  credentials. This fixes valid SX2100 setups that work on 3.5 but were rejected
+  when the previous setup check tried only 3.4. The proven version is persisted
+  for runtime startup, and auto uses one quick attempt per candidate instead of
+  multiplying the socket timeout by each candidate's retry budget.
+- Tuya cloud setup now exposes Western Europe, Eastern America, and Singapore in
+  addition to the existing regions, matching TinyTuya 1.20's distinct endpoints.
+- Schedule field edits are now atomic read-modify-write operations. Concurrent
+  slot, duration, time, Boost, or service edits can no longer derive two full
+  blobs from the same stale state and silently discard the first change. Known
+  pre-write cloud shadows are ignored until Tuya reflects the write or returns
+  a genuinely different external update.
+
+### Documentation
+- Added the Tuya Smart/Smart Life account-linking, IoT Core, exact data-center,
+  authorization propagation, LAN-IP, and local-key rotation troubleshooting
+  reported across issues #13 and #18.
+
+## [0.21.1] - 2026-08-04
+
+### Documentation
+- Clarify the verified control split used by the pool safety controller:
+  SX2100 DP104 is master power and DP106 is filtration start/stop; salt DP104
+  is master power and DP103 is chlorine-production start/stop. Operational
+  stop must not be inferred solely from a master-power switch.
+- Record the 2026-07-14 physical SX2100 verification: toggling the DP106
+  filtration switch OFF→ON recovered the motor from `sleep`/E93 and raised
+  measured load from about 1.2 W to 207 W. Local entity read-back was briefly
+  unavailable during the restart and then recovered.
+
 ### Fixed
 - Serialize requests made through the shared TinyTuya cloud client. The water
   sensor and its schedule coordinators previously polled in parallel, which

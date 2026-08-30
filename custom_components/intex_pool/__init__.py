@@ -33,9 +33,8 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
-from . import calibration, decode
+from . import calibration, decode, tuya
 from . import schedule as schedule_mod
-from . import tuya
 from .const import (
     CONF_CLOUD,
     CONF_CLOUD_INTERVAL,
@@ -56,11 +55,11 @@ from .const import (
 )
 from .coordinator import (
     CloudClientProvider,
-    clear_auth_failures,
     PumpCoordinator,
     SaltCoordinator,
     ScheduleCoordinator,
     SensorCoordinator,
+    clear_auth_failures,
 )
 from .issues import async_setup_issue_listeners
 from .models import IntexPoolConfigEntry, IntexPoolData
@@ -215,7 +214,7 @@ async def _build_data(hass: HomeAssistant, entry: IntexPoolConfigEntry) -> Intex
             )
         except tuya.TuyaAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             raise ConfigEntryNotReady(
                 f"Tuya cloud unreachable: {type(err).__name__}: {err}"
             ) from err
@@ -417,15 +416,15 @@ def _register_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="no_schedule"
             )
-        slots = (coordinator.data or {}).get("slots") or schedule_mod.decode_schedules("")
-        new = schedule_mod.set_slot(
-            slots, call.data["slot"],
-            on=call.data.get("enable"), hour=call.data.get("hour"),
-            minute=call.data.get("minute"), duration=call.data.get("duration"),
-            month=call.data.get("month"), date=call.data.get("date"),
-            days=call.data.get("days"), clear=call.data.get("clear", False),
+        await coordinator.async_update_slots(
+            lambda slots: schedule_mod.set_slot(
+                slots, call.data["slot"],
+                on=call.data.get("enable"), hour=call.data.get("hour"),
+                minute=call.data.get("minute"), duration=call.data.get("duration"),
+                month=call.data.get("month"), date=call.data.get("date"),
+                days=call.data.get("days"), clear=call.data.get("clear", False),
+            )
         )
-        await coordinator.async_write_slots(new)
         if call.return_response:
             return _serialize_slots(coordinator)
         return None

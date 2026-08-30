@@ -41,7 +41,7 @@ from .entity import (
     coordinator_for,
     device_id_for,
     device_info_for,
-    write_slots_guarded,
+    update_slots_guarded,
 )
 from .models import IntexPoolConfigEntry
 
@@ -405,9 +405,13 @@ class IntexScheduleDuration(CoordinatorEntity, NumberEntity):
         return float(slot.get("duration", 0))
 
     async def async_set_native_value(self, value: float) -> None:
-        slots = (self.coordinator.data or {}).get("slots") or schedule.decode_schedules("")
-        new = schedule.set_slot(slots, self._index, duration=int(value))
-        await write_slots_guarded(self.coordinator, new, self.entity_id)
+        await update_slots_guarded(
+            self.coordinator,
+            lambda slots: schedule.set_slot(
+                slots, self._index, duration=int(value)
+            ),
+            self.entity_id,
+        )
 
 
 class IntexNumber(IntexPoolEntity, NumberEntity):
@@ -427,10 +431,10 @@ class IntexNumber(IntexPoolEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         desc = self.entity_description
         if desc.scale is not None:
-            raw = int(round(value / desc.scale))
+            raw = round(value / desc.scale)
         else:
             raw = int(value) if float(value).is_integer() else value
         try:
             await self.coordinator.async_issue(desc.source, raw)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             raise HomeAssistantError(f"Failed to set {self.entity_id}: {err}") from err

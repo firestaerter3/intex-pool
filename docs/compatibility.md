@@ -8,7 +8,7 @@ distinction when reporting or adding a device.
 |---|---|---|---|
 | AGP / Intex QS1600 Plus | Local Tuya + optional cloud schedules | Local status and controls; `skdl_salt` decode/encode round-trip; schedule writes and readback | The second chlorine-production datapoint (DP102) is not hardware-verified and stays disabled by default. Duration/day labels are best-effort even though the raw 56-byte blob round-trips exactly. |
 | AGP Smart Sensor / Water Analyzer WA510 and T3U | Tuya cloud | pH, ORP, free chlorine reference, temperature, battery, refresh, targets and measurement-window schedule | Tuya's free-tier log API does not provide datapoint history for backfill. |
-| Intex SX2100 sand-filter pump | Local Tuya + optional cloud schedule | Master power DP104; status/alarm/runtime mappings; `skdl_filter` schedule read/write path and per-slot editors | DP106 is present and writable in the thing model, but installations with different firmware may expose a different effect. Verify after dependency or firmware changes. |
+| Intex SX2100 sand-filter pump | Local Tuya + optional cloud schedule | Master power DP104; DP106 filtration OFF→ON physically started the motor from `sleep`/E93 on 2026-07-14 (about 1.2 W to 207 W); status/alarm/runtime mappings; `skdl_filter` schedule read/write path and per-slot editors | The tested unit briefly made its local entities unavailable during the DP106 restart before read-back recovered. Other firmware may behave differently; verify after dependency or firmware changes. |
 | Any-brand linked pump | Existing Home Assistant switch | Linked on/off control, optional power/energy entities and pump-auto interlock | Safety and electrical suitability remain the responsibility of the linked switch/relay installation. |
 
 ## Dependency verification status
@@ -18,6 +18,13 @@ distinction when reporting or adding a device.
 responses; it is not a physical-device verification. Before changing a mapping
 because of a library upgrade, confirm it against a real device and record the
 model, firmware, protocol version and observed datapoints.
+
+Cloud setup exposes TinyTuya 1.20's distinct project regions: `eu`, `eu-w`,
+`us`, `us-e`, `cn`, `in`, and `sg`. Local protocol auto-detection tries 3.4,
+3.5, 3.3, and 3.1 once each and persists the version that responds. An offline
+test proves candidate selection, persistence, entry startup and error
+classification, but it does not replace a physical LAN read from the target
+device and firmware.
 
 ## Reporting another device
 
