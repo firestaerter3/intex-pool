@@ -237,6 +237,12 @@ async def test_quick_run_does_not_clobber_a_concurrent_schedule_edit(hass, monke
     the other write is released. Both edits must survive.
     """
     coord, entry = await _pump_coord(hass)
+    # Capture the real sleep BEFORE the patch below. That patch target resolves
+    # to the shared asyncio module, so it rebinds asyncio.sleep process-wide --
+    # a plain `await asyncio.sleep(0)` further down would silently become the
+    # no-op and never yield to the event loop, which would let this test pass
+    # against the broken implementation too.
+    real_sleep = asyncio.sleep
     monkeypatch.setattr(
         "custom_components.intex_pool.coordinator.asyncio.sleep", _noop_sleep
     )
@@ -268,14 +274,26 @@ async def test_quick_run_does_not_clobber_a_concurrent_schedule_edit(hass, monke
 
     other = hass.async_create_task(coord.async_update_slots(other_edit))
     # Wait for that write to actually be inside the (blocked) cloud call, so
-    # the lock is definitely held before Quick Run is pressed.
-    await hass.async_add_executor_job(in_cloud_call.wait, 10)
+    # the lock is definitely held before Quick Run is pressed. A timed-out wait
+    # would mean the gate never engaged and the whole premise is void, so it is
+    # asserted rather than ignored.
+    reached = await hass.async_add_executor_job(in_cloud_call.wait, 10)
+    assert reached, "the competing write never reached the gated cloud call"
 
     button = IntexPumpQuickRunButton(coord, entry, "pumpid")
     press = hass.async_create_task(button.async_press())
-    # Let the press run up to its first blocking await. On the old shape that
-    # is far enough to have already read the (pre-other-edit) slots.
-    await asyncio.sleep(0)
+    # Yield until the press is parked on the coordinator's write lock. Both the
+    # old and the new shape end up queued there, so this is a fair precondition
+    # for either: it means the press has finished its synchronous prologue --
+    # which on the old shape is exactly where the stale read happened -- and is
+    # now waiting. Anchoring on observed state rather than a fixed number of
+    # yields keeps the interleaving deterministic instead of scheduler-dependent.
+    for _ in range(1000):
+        await real_sleep(0)
+        if coord._write_lock._waiters:
+            break
+    else:
+        raise AssertionError("Quick Run never queued on the coordinator write lock")
 
     release.set()
     await other
