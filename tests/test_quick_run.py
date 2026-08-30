@@ -1,4 +1,6 @@
 """Pump Quick Run button + duration number (fake cloud, no network)."""
+import asyncio
+import threading
 from datetime import UTC, datetime
 
 from homeassistant.helpers import entity_registry as er
@@ -219,3 +221,70 @@ async def test_quick_run_slot_excluded_from_generic_pump_editors(hass, mock_tiny
     assert "pumpdev_quick_run_hours" in unique_ids
 
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_quick_run_does_not_clobber_a_concurrent_schedule_edit(hass, monkeypatch):
+    """Quick Run must derive its blob INSIDE the coordinator's write lock.
+
+    This is the negative control for the update_slots_guarded conversion, and
+    it fails on the previous shape. Tuya accepts only the complete seven-slot
+    blob, so an editor that reads the slots at press time, waits for the lock,
+    and then writes what it read silently reverts anything that landed while
+    it was queued.
+
+    The sequence forced here: another editor takes the lock and blocks inside
+    the cloud call, Quick Run is pressed while that write is in flight, then
+    the other write is released. Both edits must survive.
+    """
+    coord, entry = await _pump_coord(hass)
+    monkeypatch.setattr(
+        "custom_components.intex_pool.coordinator.asyncio.sleep", _noop_sleep
+    )
+    fixed_now = datetime(2026, 8, 15, 14, 30, tzinfo=UTC)
+    monkeypatch.setattr(
+        "custom_components.intex_pool.button.dt_util.now", lambda: fixed_now
+    )
+    hass.config_entries.async_update_entry(entry, options={CONF_QUICK_RUN_HOURS: 3})
+
+    other_slot = 3
+    in_cloud_call = threading.Event()
+    release = threading.Event()
+    real_issue = coord._client.issue
+
+    def gated_issue(device_id, code, value):
+        # Hold only the first writer; Quick Run's own write runs freely.
+        if not in_cloud_call.is_set():
+            in_cloud_call.set()
+            release.wait(10)
+        return real_issue(device_id, code, value)
+
+    coord._client.issue = gated_issue
+
+    def other_edit(slots):
+        return schedule.set_slot(
+            slots, other_slot,
+            on=True, hour=9, minute=0, month=8, date=15, duration=1, days=0,
+        )
+
+    other = hass.async_create_task(coord.async_update_slots(other_edit))
+    # Wait for that write to actually be inside the (blocked) cloud call, so
+    # the lock is definitely held before Quick Run is pressed.
+    await hass.async_add_executor_job(in_cloud_call.wait, 10)
+
+    button = IntexPumpQuickRunButton(coord, entry, "pumpid")
+    press = hass.async_create_task(button.async_press())
+    # Let the press run up to its first blocking await. On the old shape that
+    # is far enough to have already read the (pre-other-edit) slots.
+    await asyncio.sleep(0)
+
+    release.set()
+    await other
+    await press
+
+    final = schedule.decode_schedules(coord._client.raw)
+    assert final[QUICK_RUN_SLOT]["active"] is True
+    assert final[QUICK_RUN_SLOT]["duration"] == 3
+    assert final[other_slot]["active"] is True, (
+        "Quick Run overwrote a schedule edit that landed while it was queued"
+    )
+    assert final[other_slot]["hour"] == 9

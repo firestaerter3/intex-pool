@@ -23,7 +23,7 @@ from .entity import (
     coordinator_for,
     device_id_for,
     device_info_for,
-    write_slots_guarded,
+    update_slots_guarded,
 )
 from .models import IntexPoolConfigEntry
 
@@ -105,25 +105,34 @@ class IntexPumpQuickRunButton(CoordinatorEntity, ButtonEntity):
                 hours = float(raw)
             except (TypeError, ValueError):
                 hours = DEFAULT_QUICK_RUN_HOURS
-        # Local wall-clock time, NOT UTC — the schedule blob stores hour/
-        # minute as the device's own local time, and dt_util.now() is HA's
-        # canonical timezone-aware "now" (unlike a naive datetime.utcnow()).
-        #
-        # Rounded up (not "now") because the write itself isn't instant:
-        # ScheduleCoordinator.async_write_slots() waits 5s for the cloud write
-        # to settle before returning, on top of normal network latency. A
-        # start time already in the past by the time Tuya applies it simply
-        # never runs — silently. A naive "+1 minute, truncate to :00" is NOT
-        # enough: pressed at :59, that only buys ~1s. Add 2 minutes BEFORE
-        # truncating instead — pressed at :00 gives the full 2-minute buffer;
-        # pressed at :59 (the worst case) still gives just over 1 full
-        # minute, comfortably covering the write's real-world latency.
-        target = (dt_util.now() + timedelta(minutes=2)).replace(second=0, microsecond=0)
-        slots = (self.coordinator.data or {}).get("slots") or schedule.decode_schedules("")
-        new = schedule.set_slot(
-            slots, QUICK_RUN_SLOT,
-            on=True, hour=target.hour, minute=target.minute,
-            month=target.month, date=target.day,
-            duration=round(hours), days=0,
-        )
-        await write_slots_guarded(self.coordinator, new, self.entity_id)
+        def mutate(slots: list[dict]) -> list[dict]:
+            # Local wall-clock time, NOT UTC — the schedule blob stores hour/
+            # minute as the device's own local time, and dt_util.now() is HA's
+            # canonical timezone-aware "now" (unlike a naive datetime.utcnow()).
+            #
+            # Rounded up (not "now") because the write itself isn't instant:
+            # the cloud write waits 5s to settle before returning, on top of
+            # normal network latency. A start time already in the past by the
+            # time Tuya applies it simply never runs — silently. A naive
+            # "+1 minute, truncate to :00" is NOT enough: pressed at :59, that
+            # only buys ~1s. Add 2 minutes BEFORE truncating instead — pressed
+            # at :00 gives the full 2-minute buffer; pressed at :59 (the worst
+            # case) still gives just over 1 full minute, comfortably covering
+            # the write's real-world latency.
+            #
+            # Computed HERE rather than at press time so the buffer is measured
+            # from the moment the blob is actually derived, inside the write
+            # lock. A press that queues behind another schedule edit waits at
+            # least that edit's 5s settle, which would otherwise silently eat
+            # into the margin.
+            target = (dt_util.now() + timedelta(minutes=2)).replace(
+                second=0, microsecond=0
+            )
+            return schedule.set_slot(
+                slots, QUICK_RUN_SLOT,
+                on=True, hour=target.hour, minute=target.minute,
+                month=target.month, date=target.day,
+                duration=round(hours), days=0,
+            )
+
+        await update_slots_guarded(self.coordinator, mutate, self.entity_id)
