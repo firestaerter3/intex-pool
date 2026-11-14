@@ -26,7 +26,6 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.components.switch import SwitchEntityDescription
 from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
     EntityCategory,
     Platform,
@@ -34,6 +33,13 @@ from homeassistant.const import (
     UnitOfTemperature,
     UnitOfTime,
 )
+
+try:  # HA 2026.x+: UnitOfRatio replaces the constant removed in 2027.8
+    from homeassistant.const import UnitOfRatio
+
+    PARTS_PER_MILLION = UnitOfRatio.PARTS_PER_MILLION
+except ImportError:  # older cores
+    from homeassistant.const import CONCENTRATION_PARTS_PER_MILLION as PARTS_PER_MILLION
 
 from . import decode
 
@@ -201,7 +207,7 @@ SENSORS: tuple[IntexSensorDescription, ...] = (
     # Saltwater (local DPs)
     IntexSensorDescription(
         key="salinity", translation_key="salinity", device=DEVICE_SALT, source="109",
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        native_unit_of_measurement=PARTS_PER_MILLION,
         state_class=SensorStateClass.MEASUREMENT, suggested_display_precision=0,
     ),
     IntexSensorDescription(
@@ -282,7 +288,7 @@ SENSORS: tuple[IntexSensorDescription, ...] = (
     ),
     IntexSensorDescription(
         key="free_chlorine", translation_key="free_chlorine", device=DEVICE_SENSOR, source="fc_number",
-        scale=0.01, native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        scale=0.01, native_unit_of_measurement=PARTS_PER_MILLION,
         state_class=SensorStateClass.MEASUREMENT, suggested_display_precision=2,
     ),
     IntexSensorDescription(

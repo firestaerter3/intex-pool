@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_MILLION,
     EntityCategory,
     UnitOfElectricPotential,
     UnitOfTime,
@@ -33,6 +32,7 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
     NUMBERS,
+    PARTS_PER_MILLION,
     SIGNAL_OPTIONS_UPDATED,
     VOLUME_UNIT_GALLON,
 )
@@ -121,7 +121,7 @@ class IntexChemistryInputNumber(NumberEntity):
     _attr_entity_category = EntityCategory.CONFIG
     _attr_native_min_value = 0
     _attr_mode = NumberMode.BOX
-    _attr_native_unit_of_measurement = CONCENTRATION_PARTS_PER_MILLION
+    _attr_native_unit_of_measurement = PARTS_PER_MILLION
     _attr_should_poll = False
 
     def __init__(
